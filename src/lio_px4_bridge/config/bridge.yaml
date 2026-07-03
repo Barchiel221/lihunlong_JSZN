@@ -1,0 +1,29 @@
+/lio_px4_bridge:
+  ros__parameters:
+    # 话题
+    lio_odom_topic: "/Odometry"
+    imu_topic: "/livox/imu"
+    effect_cloud_topic: "/cloud_effected"
+    px4_vo_topic: "/fmu/in/vehicle_visual_odometry"
+
+    # 退化检测:有效点 < 阈值 → 协方差放大,EKF2 自动降权
+    degraded_threshold: 100
+    degraded_cov_scale: 100.0
+
+    # 协方差:室内 LIO 实际位置噪声 30-50cm,原 0.05 让 EKF2 死信 VIO,
+    # 反而拉得 IMU 偏离 → 飞行中 xy 漂。调大到合理水平。
+    position_var:    0.30    # σ ≈ 55cm
+    orientation_var: 0.05    # σ ≈ 13°
+    velocity_var:    1.00    # 差分速度噪声本来就大
+
+    # IMU 单步 dt 上限,丢包/暂停保护
+    imu_max_dt: 0.05
+
+    # ★ 关键:仅在 LIO 真值到达时 publish(10Hz),不再用 IMU strapdown 外推假数据
+    # 原因:Livox IMU bias 不补偿,200Hz 视觉里 95% 是带误差的外推,
+    # 和 EKF2 自己的 PX4 IMU 预测打架,飞行中 xy 飘。
+    publish_on_imu: false
+
+    # 真机 Livox 驱动输出的 linear_acceleration 是 g;仿真 PX4 SensorCombined 转 Imu 是 m/s^2。
+    # 默认 true 保持真机行为,ego_sim_fast_lio.launch.py 会覆盖为 false。
+    imu_acc_in_g: true

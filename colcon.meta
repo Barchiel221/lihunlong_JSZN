@@ -1,0 +1,7 @@
+{
+    "names": {
+        "livox_ros_driver2": {
+            "cmake-args": ["-DHUMBLE_ROS=humble"]
+        }
+    }
+}

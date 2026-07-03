@@ -1,0 +1,45 @@
+/px4_offboard_waypoint:
+  ros__parameters:
+    # ★ 安全开关 ★
+    # 第一次绝对要 false:节点只 publish setpoint,不切 Offboard 不解锁
+    # 看完 dry-run 一切正常,再改 true 真飞
+    enable_arm: false
+
+    # 目标航点(NED 坐标系,米)
+    # x: 北方向,y: 东方向。原点 = 上电时的位置
+    target_x: 0.0           # 暂定不水平移动,只起降
+    target_y: 0.0
+    target_yaw_deg: 0.0     # 0=朝北,90=朝东
+
+    # 起飞高度(米,正值;NED z 会用 -takeoff_altitude)
+    # 1.0 m: 配合 ego virtual_ceil_height=1.5 (实际峰值 ≈ 1.1m) 留 ~0.1m 余量。
+    takeoff_altitude: 1.0
+
+    # 时序
+    warmup_seconds: 2.0     # 切 Offboard 前先发多久 setpoint
+    hold_seconds: 5.0       # 到点后悬停多久再降落
+
+    # 到点容差
+    reach_xy_tolerance:      0.30   # m
+    reach_z_tolerance:       0.20   # m
+    reach_yaw_tolerance_deg: 5.0
+
+    # EGO 真飞后的 MID360 二次校准
+    enable_final_correction: false
+    goal_topic: "/move_base_simple/goal"
+    mid360_odom_topic: "/Odometry"
+    ego_goal_reach_xy_tolerance: 0.35   # EGO 轨迹末端离 goal 多近才切二次校准
+    ego_goal_reach_z_tolerance: 0.25
+    ego_goal_velocity_tolerance: 0.15
+    ego_goal_settle_seconds: 1.0
+    precision_xy_tolerance: 0.12        # MID360 判定实打实到点
+    precision_z_tolerance: 0.15
+    precision_settle_seconds: 1.0
+    mid360_odom_timeout_sec: 0.5
+    auto_disarm_after_landing: true     # PX4 报 landed 后主动发 disarm 停桨
+    land_disarm_delay_sec: 1.0
+    disarm_retry_seconds: 1.0
+
+    # 安全
+    max_state_seconds: 30.0   # 单状态超时,超时自动 LAND
+    setpoint_rate_hz:  50.0   # Offboard 要求 ≥2Hz,推荐 50

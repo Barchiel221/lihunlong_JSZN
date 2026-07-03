@@ -1,0 +1,35 @@
+# Colcon build artifacts
+/build/
+/install/
+/log/
+
+# Local tool/session state
+/.agents/
+/.claude/
+/.codex/
+/.codex_backups/
+/.backups/
+/.vscode/
+/.nested_git_backup/
+
+# Python/CMake/editor noise
+__pycache__/
+*.py[cod]
+*.swp
+*~
+.DS_Store
+
+# Runtime logs and dumps
+*.log
+core
+core.*
+
+# ROS bag / replay payloads are too large for normal GitHub pushes.
+*.db3
+*.mcap
+*.bag
+metadata.yaml
+
+# Generated analysis exports; keep scripts and hand-written reports.
+/bag_analysis/out_*/
+/bag_analysis/replay_*/

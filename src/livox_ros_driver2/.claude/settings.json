@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/orangepi/lihunlong_ws/**)",
+      "Bash(catkin_make)"
+    ]
+  }
+}
