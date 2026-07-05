@@ -58,6 +58,33 @@ namespace ego_planner
     planner_manager_->deliverTrajToOptimizer(); // store trajectories
     planner_manager_->setDroneIdtoOpt();
 
+    // ===== 改动 B: 航段级 max_vel 运行时更新 =====
+    // 以启动值(保守档 launch 初值)为上限做 clamp: 航段只允许降速。emergency_time/planning_horizon
+    // 均按 max_vel<=初值 标定,提速档走 launch(改动 E)另调,不走此运行时通道。
+    // 同节点已有改动 A 的 grid_map 回调,ROS2 支持链式注册多个回调,互不干扰(各自只认自己的 key)。
+    max_vel_launch_ = planner_manager_->getMaxVel();
+    max_vel_param_cb_handle_ = node_->add_on_set_parameters_callback(
+        [this](const std::vector<rclcpp::Parameter> &params)
+        {
+          rcl_interfaces::msg::SetParametersResult result;
+          result.successful = true;
+          double new_v = -1.0;
+          for (const auto &p : params)
+          {
+            if (p.get_name() == "manager/max_vel" || p.get_name() == "optimization/max_vel")
+              new_v = p.as_double();
+          }
+          if (new_v > 0.0)
+          {
+            if (new_v > max_vel_launch_)
+              new_v = max_vel_launch_; // clamp: 不得超过启动值
+            planner_manager_->setMaxVelDynamic(new_v);
+            RCLCPP_INFO(node_->get_logger(), "[fsm] max_vel -> %.3f (launch cap %.3f)",
+                        new_v, max_vel_launch_);
+          }
+          return result;
+        });
+
     /* callback*/
     exec_timer_ = node_->create_wall_timer(std::chrono::milliseconds(10),
                                            std::bind(&EGOReplanFSM::execFSMCallback, this));

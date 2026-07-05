@@ -56,6 +56,7 @@ public:
     declare_parameter<std::string>("imu_topic", "/livox/imu");
     declare_parameter<std::string>("effect_cloud_topic", "/cloud_effected");
     declare_parameter<std::string>("px4_vo_topic", "/fmu/in/vehicle_visual_odometry");
+    declare_parameter<double>("lio_z_offset_m", 0.0);
     declare_parameter<int>("degraded_threshold", 100);
     declare_parameter<double>("degraded_cov_scale", 100.0);
     declare_parameter<double>("position_var", 0.05);
@@ -63,12 +64,12 @@ public:
     declare_parameter<double>("velocity_var", 0.10);
     declare_parameter<double>("imu_max_dt", 0.05);  // 单步 dt 上限,丢包保护
     declare_parameter<bool>("publish_on_imu", true);
-    declare_parameter<bool>("imu_acc_in_g", true);
 
     lio_odom_topic_      = get_parameter("lio_odom_topic").as_string();
     imu_topic_           = get_parameter("imu_topic").as_string();
     effect_cloud_topic_  = get_parameter("effect_cloud_topic").as_string();
     px4_vo_topic_        = get_parameter("px4_vo_topic").as_string();
+    lio_z_offset_m_      = get_parameter("lio_z_offset_m").as_double();
     degraded_threshold_  = get_parameter("degraded_threshold").as_int();
     degraded_cov_scale_  = get_parameter("degraded_cov_scale").as_double();
     pos_var_             = get_parameter("position_var").as_double();
@@ -76,7 +77,6 @@ public:
     vel_var_             = get_parameter("velocity_var").as_double();
     imu_max_dt_          = get_parameter("imu_max_dt").as_double();
     publish_on_imu_      = get_parameter("publish_on_imu").as_bool();
-    imu_acc_in_g_        = get_parameter("imu_acc_in_g").as_bool();
 
     // QoS:LIO/IMU 高频 best-effort
     rclcpp::QoS sensor_qos(rclcpp::KeepLast(20));
@@ -110,10 +110,9 @@ public:
     });
 
     RCLCPP_INFO(get_logger(),
-                "bridge up. lio=%s imu=%s effect=%s out=%s imu_acc_in_g=%d",
+                "bridge up. lio=%s imu=%s effect=%s out=%s",
                 lio_odom_topic_.c_str(), imu_topic_.c_str(),
-                effect_cloud_topic_.c_str(), px4_vo_topic_.c_str(),
-                static_cast<int>(imu_acc_in_g_));
+                effect_cloud_topic_.c_str(), px4_vo_topic_.c_str());
   }
 
 private:
@@ -122,7 +121,9 @@ private:
     lio_hz_ = lio_hz_.load() + 0.5;  // 2s 窗口里每帧累加 0.5 ≈ Hz
 
     const Eigen::Vector3d p_map(
-        m->pose.pose.position.x, m->pose.pose.position.y, m->pose.pose.position.z);
+        m->pose.pose.position.x,
+        m->pose.pose.position.y,
+        m->pose.pose.position.z + lio_z_offset_m_);
     const Eigen::Quaterniond q_map_flu(
         m->pose.pose.orientation.w, m->pose.pose.orientation.x,
         m->pose.pose.orientation.y, m->pose.pose.orientation.z);
@@ -159,12 +160,11 @@ private:
 
     const rclcpp::Time t_now = m->header.stamp;
 
-    // FLU → FRD;Livox IMU acc 输出单位是 g(重力倍数),需要 ×9.80665 转 m/s²。
-    // 仿真里从 PX4 SensorCombined 转出的标准 Imu 已是 m/s²,此时设置 imu_acc_in_g=false。
+    // FLU → FRD;Livox IMU acc 输出单位是 g(重力倍数),需要 ×9.80665 转 m/s²
     // (livox_ros_driver2/src/lddc.cpp 直接把 raw acc 复制进 sensor_msgs/Imu 没做单位转换)
     const Eigen::Vector3d acc_frd(
         m->linear_acceleration.x, -m->linear_acceleration.y, -m->linear_acceleration.z);
-    const Eigen::Vector3d acc_frd_si = imu_acc_in_g_ ? acc_frd * kGravity : acc_frd;
+    const Eigen::Vector3d acc_frd_si = acc_frd * kGravity;  // g → m/s^2
     const Eigen::Vector3d gyr_frd(   // gyro 已经是 rad/s
         m->angular_velocity.x, -m->angular_velocity.y, -m->angular_velocity.z);
     last_gyr_frd_ = gyr_frd;
@@ -252,11 +252,12 @@ private:
 
   // 参数
   std::string lio_odom_topic_, imu_topic_, effect_cloud_topic_, px4_vo_topic_;
+  double lio_z_offset_m_;
   int    degraded_threshold_;
   double degraded_cov_scale_;
   double pos_var_, ori_var_, vel_var_;
   double imu_max_dt_;
-  bool   publish_on_imu_, imu_acc_in_g_;
+  bool   publish_on_imu_;
 
   // 订阅 / 发布
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr      sub_odom_;

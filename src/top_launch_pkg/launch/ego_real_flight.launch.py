@@ -16,12 +16,15 @@
 #
 # Goal:RViz 里"2D Goal Pose"工具发到 /move_base_simple/goal,frame=map (ENU)
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ament_index_python.packages import get_package_share_directory
+from ego_planner_params import ego_advanced_launch_arguments  # 改动 H: 共享 planner 参数段
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, ExecuteProcess
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -38,11 +41,26 @@ def generate_launch_description():
         'final_correction', default_value='true',
         description='EGO 到 RViz goal 后,用 MID360 /Odometry 做最终校准,随后自动降落停桨')
     precision_xy_arg = DeclareLaunchArgument(
-        'precision_xy_tolerance', default_value='0.12',
+        'precision_xy_tolerance', default_value='0.10',   # 220mm: 电机投影半径 0.11, KT 板 0.5 → 留余量保 4 电机进板(计划书 §4.1)
         description='MID360 二次校准的 XY 到点容差,米')
     precision_z_arg = DeclareLaunchArgument(
         'precision_z_tolerance', default_value='0.15',
         description='MID360 二次校准的 Z 到点容差,米')
+    # E2: mission_file 非空 -> 拉起 mission_executor 自动发 goal(替代 RViz 手点);
+    #     默认空 = 维持 RViz 手动模式, 日常调试不受影响。
+    mission_file_arg = DeclareLaunchArgument(
+        'mission_file', default_value='',
+        description='mission.yaml 路径。空=RViz 手动发 goal;非空=mission_executor 自动任务调度')
+    # E3: 参数档。conservative=standard=现值(保守), fast 提速(仅第一轮≥90 分时用, 现场执行预案 §5)。
+    profile_arg = DeclareLaunchArgument(
+        'profile', default_value='standard',
+        description='conservative | standard | fast')
+    profile = LaunchConfiguration('profile')
+    # fast 档: max_vel 0.8 / planning_horizon 5.0 / emergency_time 1.6(必须 > max_vel/max_acc)。
+    is_fast = ["'", profile, "' == 'fast'"]
+    max_vel_sub = PythonExpression(["'0.8' if "] + is_fast + [" else '0.6'"])
+    planning_horizon_sub = PythonExpression(["'5.0' if "] + is_fast + [" else '4.0'"])
+    emergency_time_sub = PythonExpression(["'1.6' if "] + is_fast + [" else '1.0'"])
 
     # 1. 传感+SLAM+EKF2 桥(直接复用现有的 lihunlong_run_launch)
     base_stack = IncludeLaunchDescription(
@@ -85,52 +103,13 @@ def generate_launch_description():
                 'launch', 'advanced_param.launch.py'
             ])
         ]),
-        launch_arguments={
-            'drone_id':         '0',
-            'odometry_topic':   'Odometry',           # 实际 sub: /drone_0_Odometry
-            'cloud_topic':      'cloud_registered',   # 实际 sub: /drone_0_cloud_registered
-            'camera_pose_topic': 'unused_pose',       # 不用深度相机
-            'depth_topic':       'unused_depth',
-            'map_size_x_': '40.0', 'map_size_y_': '40.0', 'map_size_z_': '4.0',
-            # ===== 机体物理参数(330mm X型, 含桨外径 50cm × 40cm × 高 35cm, R≈0.25 m) =====
-            # grid_map 用精确圆柱膨胀: XY 按欧氏距离防墙, Z 已由 virtual_ground 硬挡, 单独 inflate 只兜 voxel 量化误差。
-            # 0.225 在 0.1m voxel 下不会再被方块膨胀放大成 0.30m/侧, 0.70m 通道仍应连通。
-            # 0.10 (=1 voxel @resolution=0.1) 替代 0.175 半机体高: 015940 replay 中 0.175 把虚地板顶推到 0.625m,
-            # 离 goal z=0.8 只剩 17.5cm; 0.10 后顶 ≈0.55m 余量回到 25cm, 且 bspline 抖动 median 0.153→0.114。
-            # 注: EMERGENCY 没降到 0 是因为原 bag 实际飞到 z=0.46m, 这一段无论怎么调 inflate 都会被 virtual_ground 判危险 —— 闭环实飞不会到这。
-            'obstacles_inflation': '0.28',
-            'obstacles_inflation_z': '0.20',
-            # dist0 是硬膨胀之外的优化软余量, 不再和机体半径重复叠加。
-            'dist0':               '0.08',
-            # ===== 第一次飞保守动力学(默认值的 ~50%) =====
-            'max_vel': '0.6', 'max_acc': '0.5',
-            'planning_horizon': '4.0',      # ≈ max_vel × 4s
-            'emergency_time':   '1.0',      # > max_vel/max_acc = 0.67s
-            # ===== 局部地图: ≥ planning_horizon + 1, ≤ MID-360 有效距离 40m =====
-            'local_update_range_x': '8.0',
-            'local_update_range_y': '8.0',
-            'local_update_range_z': '4.0',
-            # ===== 虚拟天花板 =====
-            # virtual_ceil 把 z >= ceil 的所有 voxel 全部标 occupied (填实, 不是单层薄膜)。
-            # 飞机经优化器与天花板保持 dist0 软距离,
-            # 以当前 dist0=0.08 估算, 实际飞行峰值 ≈ virtual_ceil_height - 0.10(ceil voxel 偏移) - 0.08(dist0) - 0.05(余量) ≈ ceil - 0.23 m。
-            # 设 1.5 → 实际峰值上限 ≈ 1.27 m (仍高于 takeoff_altitude=1.0)。
-            'virtual_ceil_height': '1.5',
-            # ===== 方案三 (221710 bag 复盘后加入): 阻止 -Z 下钻, 强制 ±Y 侧绕 =====
-            # virtual_ground 把 z<=0.45m 的 inflate 全部填占据, 关掉优化器 {p,v} 在 -Z 的逃逸捷径。
-            # enable_height=0.55m: 飞机起飞爬到 0.55m 之上才启用 (避免起飞时把自己包死)。
-            # 实际飞行带 ≈ z ∈ [0.55+0.08, 1.0] m (留 dist0 软余量, 上限受 virtual_ceil 影响)。
-            'virtual_ground_height':         '0.45',
-            'virtual_ground_enable_height':  '0.55',
-            # altitude penalty: z_ref 由 planner_manager 用 start_pt.z 自动设, lambda_z 越大越偏好水平飞行。
-            # 5.0 是初始建议值 (相对 lambda_smooth=1.0 / lambda_collision=0.5 来定标), 实飞后视 z 跟踪表现调。
-            'lambda_z':                      '5.0',
-            'use_distinctive_trajs': 'False',     # ros2_version fork 里这个分支(distinctiveTrajs)有 SIGSEGV bug,先关
-            'flight_type': '1',                       # 1 = MANUAL_TARGET, 等 RViz Nav Goal
-            'point_num': '1',
-            'point0_x': '0.0', 'point0_y': '0.0', 'point0_z': '1.0',
-            'obj_num_set': '0',
-        }.items()
+        # 改动 H: planner 参数来自共享 ego_planner_params.py(单一真源)。profile 相关的三个
+        # 动态量在本文件按档位构造后传入, 其余参数集中在共享模块, 改一处三 launch 生效。
+        launch_arguments=ego_advanced_launch_arguments(
+            max_vel=max_vel_sub,
+            planning_horizon=planning_horizon_sub,
+            emergency_time=emergency_time_sub,
+        ).items()
     )
 
     # 5. traj_server:Bspline → PositionCommand,默认发布 /position_cmd
@@ -169,6 +148,10 @@ def generate_launch_description():
                 'enable_external_traj': True,
                 'external_traj_topic': '/ego/trajectory_setpoint',
                 'external_traj_timeout_sec': 0.5,
+                # 改动 I: FLY 段机头跟随飞行方向(速度死区+限速), 消除区域②→③右转后倒飞。
+                # yaw_follow_speed 设极大值即退化为锁死 home_yaw_(省赛行为)。
+                'yaw_follow_speed': 0.3,
+                'yaw_rate_max_deg': 60.0,
                 'enable_final_correction': LaunchConfiguration('final_correction'),
                 'goal_topic': '/move_base_simple/goal',
                 'mid360_odom_topic': '/Odometry',
@@ -188,6 +171,22 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
+    # E2: mission_executor(mission_file 非空时启动)。ExecuteProcess 跑 share/launch 下的脚本,
+    # 与 ego_multi_goal.launch.py 同一模式。IfCondition 判 mission_file != ''。
+    mission_script = os.path.join(
+        get_package_share_directory('top_launch_pkg'), 'launch', 'mission_executor.py')
+    mission_executor = ExecuteProcess(
+        cmd=[
+            'python3', mission_script,
+            '--mission', LaunchConfiguration('mission_file'),
+            '--odom_topic', '/Odometry',
+            '--goal_topic', '/move_base_simple/goal',
+            '--ego_node', 'drone_0_ego_planner_node',
+        ],
+        output='screen',
+        condition=IfCondition(PythonExpression(["'", LaunchConfiguration('mission_file'), "' != ''"])),
+    )
+
     rviz_cfg = PathJoinSubstitution([
         FindPackageShare('top_launch_pkg'), 'rviz', 'ego_debug.rviz'
     ])
@@ -200,6 +199,7 @@ def generate_launch_description():
     return LaunchDescription([
         rviz_arg, enable_arm_arg, debug_rviz_arg,
         final_correction_arg, precision_xy_arg, precision_z_arg,
+        mission_file_arg, profile_arg,
         base_stack,
         tf_world_to_init, tf_map_to_init,
         relay_odom, relay_cloud,
@@ -207,5 +207,6 @@ def generate_launch_description():
         traj_server,
         ego_adapter,
         px4_offboard,
+        mission_executor,
         rviz_node,
     ])

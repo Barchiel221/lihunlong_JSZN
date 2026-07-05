@@ -244,6 +244,8 @@ private:
   typedef shared_ptr<message_filters::Synchronizer<SyncPolicyImageOdom>> SynchronizerImageOdom;
 
   rclcpp::Node::SharedPtr node_;
+  // 改动 A: 运行时更新 virtual_ceil/ground 的参数回调句柄(须持有以保活)
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_handle_;
   std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>> depth_sub_;
   std::shared_ptr<message_filters::Subscriber<geometry_msgs::msg::PoseStamped>> pose_sub_;
   std::shared_ptr<message_filters::Subscriber<nav_msgs::msg::Odometry>> odom_sub_;

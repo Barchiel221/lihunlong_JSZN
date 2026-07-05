@@ -44,6 +44,10 @@ namespace ego_planner
 
     double getSwarmClearance(void) { return bspline_optimizer_->getSwarmClearance(); }
 
+    // 改动 B: 航段级 max_vel 运行时更新。同步 pp_(轨迹时长分配)与 optimizer(feasibility 代价)两处。
+    void setMaxVelDynamic(double v) { pp_.max_vel_ = v; bspline_optimizer_->setMaxVelDynamic(v); }
+    double getMaxVel(void) const { return pp_.max_vel_; }
+
     bool checkCollision(int drone_id);
     
 

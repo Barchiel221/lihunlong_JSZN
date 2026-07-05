@@ -82,6 +82,9 @@ namespace ego_planner
 
     /* ROS utils */
     rclcpp::Node::SharedPtr node_;
+    // 改动 B: max_vel 运行时更新的回调句柄(须持有以保活)与启动上限(航段限速只允许下调)
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr max_vel_param_cb_handle_;
+    double max_vel_launch_ = -1.0;
     rclcpp::TimerBase::SharedPtr exec_timer_, safety_timer_;
 
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr waypoint_sub_;

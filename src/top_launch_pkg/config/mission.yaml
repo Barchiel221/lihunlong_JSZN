@@ -1,0 +1,57 @@
+# 国赛任务文件 (改动 D)。mission_executor.py 读取, 按顺序发 /move_base_simple/goal。
+#
+# ★★★ 赛前现场只改这个文件, 不动代码。★★★
+# 坐标: ENU, frame=map, 起飞区为原点 [0,0]。下面 pos 全是占位 0.0, 环中心/降落区坐标
+# 赛前公布后逐个填写 (计划书 §2 / 现场执行预案 §5)。
+#
+# waypoint 字段:
+#   pos: [x, y, z]                必填。ENU 米。
+#   fly_through: true|false       默认 false。true=只看 XY 到容差即切下一点(穿环/引导点,
+#                                 不悬停); false=XY+Z+速度小且 settle 秒(普通点)。
+#   tolerance: {xy, z}            可选, 覆盖 default_tolerance。
+#   segment_params:               可选。发本 goal 前先经 set_parameters 推给 planner。
+#     max_vel                       -> manager/max_vel + optimization/max_vel (只允许 <= 启动值)
+#     virtual_ceil_height           -> grid_map/virtual_ceil_height
+#     virtual_ground_height         -> grid_map/virtual_ground_height
+#     virtual_ground_enable_height  -> grid_map/virtual_ground_enable_height
+#
+# 环航点用粗容差直穿(fly_through), 最后一个航点(降落区)用普通判定, 发出后交
+# px4_offboard 走 FINAL_CORRECTION -> 精对 -> LAND -> DISARM。
+
+default_tolerance: {xy: 0.35, z: 0.25}
+
+waypoints:
+  # ---- 区域① 立柱阵 -> 环① ----
+  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环①入口引导点 (法向 -0.8m, 方向已知时)
+  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环①中心
+  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环①出口引导点 (法向 +0.8m)
+
+  # ---- 区域② 树林(背风侧) -> 环② ----
+  - pos: [0.0, 0.0, 1.0]
+    fly_through: true
+    segment_params: {max_vel: 0.5}              # 进②降速 (风扰段, 计划书 §4.4)
+  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环②中心
+
+  # ---- 区域③ 移动障碍(垂直穿越) -> 环③ ----
+  - pos: [0.0, 0.0, 1.0]
+    fly_through: true
+    segment_params: {max_vel: 0.6}              # 出②恢复速度
+  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环③中心
+
+  # ---- 区域④ 0.7m 拱门 -> 环④ ----
+  - pos: [0.0, 0.0, 1.0]                         # 拱门入口引导点 (开口法向 -0.8m)
+    fly_through: true
+    segment_params:
+      max_vel: 0.4                               # 洞口低速直穿 (计划书 §4.4)
+      # 环④低位时启用 (赛前按公布高度决定):
+      # virtual_ground_height: 0.25
+      # virtual_ground_enable_height: 0.35
+  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 拱门出口 / 环④入口引导点
+  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环④中心
+
+  # ---- 降落区 (最后一点: 交 px4_offboard 精降, 不加 fly_through) ----
+  - pos: [0.0, 0.0, 1.0]
+    segment_params:                              # 恢复全局约束再精降
+      max_vel: 0.6
+      virtual_ground_height: 0.45
+      virtual_ground_enable_height: 0.55

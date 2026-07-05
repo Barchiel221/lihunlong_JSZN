@@ -216,6 +216,46 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   // rand_noise2_ = normal_distribution<double>(0, 0.2);
   // random_device rd;
   // eng_ = default_random_engine(rd());
+
+  // ===== 改动 A: 航段级 virtual_ceil/ground 运行时切换 =====
+  // 只处理这三个 key,更新 mp_ 成员;ceil/ground 的占据填充在 applyVirtualBoundsToInflatedMap()
+  // 每个地图更新周期重建(grid_map.cpp:286),故成员更新后下一周期自动生效、无残留脏 voxel。
+  // 其余参数一律放行(successful=true),不干扰同节点其他回调(如改动 B 的 max_vel)。
+  param_cb_handle_ = node_->add_on_set_parameters_callback(
+      [this](const std::vector<rclcpp::Parameter> &params) {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+        for (const auto &p : params)
+        {
+          const std::string &name = p.get_name();
+          if (name == "grid_map/virtual_ceil_height")
+          {
+            const double v = p.as_double();
+            // 复用 initMap 约束: ceil 不得超过 map z 上界
+            if (v - mp_.ground_height_ > mp_.map_size_(2))
+            {
+              result.successful = false;
+              result.reason = "virtual_ceil_height exceeds map z upper bound";
+              return result;
+            }
+            mp_.virtual_ceil_height_ = v;
+            RCLCPP_INFO(node_->get_logger(), "[grid_map] virtual_ceil_height -> %.3f", v);
+          }
+          else if (name == "grid_map/virtual_ground_height")
+          {
+            mp_.virtual_ground_height_ = p.as_double();
+            RCLCPP_INFO(node_->get_logger(), "[grid_map] virtual_ground_height -> %.3f",
+                        mp_.virtual_ground_height_);
+          }
+          else if (name == "grid_map/virtual_ground_enable_height")
+          {
+            mp_.virtual_ground_enable_height_ = p.as_double();
+            RCLCPP_INFO(node_->get_logger(), "[grid_map] virtual_ground_enable_height -> %.3f",
+                        mp_.virtual_ground_enable_height_);
+          }
+        }
+        return result;
+      });
 }
 
 void GridMap::resetBuffer()

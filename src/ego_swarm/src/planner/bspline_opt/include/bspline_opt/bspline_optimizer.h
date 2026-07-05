@@ -110,6 +110,8 @@ namespace ego_planner
                       const vector<int> &waypt_idx); // N-2 constraints at most
     void setLocalTargetPt(const Eigen::Vector3d local_target_pt) { local_target_pt_ = local_target_pt; };
     void setAltitudeRef(double z_ref) { z_ref_ = z_ref; };
+    void setMaxVelDynamic(double v) { max_vel_ = v; };  // 改动 B: 航段级 max_vel 运行时更新(feasibility 代价)
+    double getMaxVel() const { return max_vel_; };
 
     void optimize();
 

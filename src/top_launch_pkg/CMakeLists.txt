@@ -11,12 +11,9 @@ install(DIRECTORY rviz/
   DESTINATION share/${PROJECT_NAME}/rviz
 )
 
-install(PROGRAMS
-  scripts/pointcloud_frame_republisher.py
-  scripts/pose_array_goal_sequencer.py
-  scripts/pose_relay.py
-  scripts/px4_sensor_combined_to_imu.py
-  DESTINATION lib/${PROJECT_NAME}
+# 改动 D: mission.yaml 任务文件(赛前现场只改这个文件)
+install(DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 ament_package()

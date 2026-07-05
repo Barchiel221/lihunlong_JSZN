@@ -8,7 +8,8 @@
 //   ARMING    ─► 发 ARM_DISARM→arm,等 arming_state=2
 //   TAKEOFF   ─► setpoint = (home_x, home_y, -takeoff_alt, home_yaw)
 //                到 z 容差范围后转 FLY
-//   FLY       ─► setpoint = external trajectory when enabled, with yaw locked to home_yaw_
+//   FLY       ─► setpoint = external trajectory when enabled, yaw follows flight direction
+//                (speed deadband + rate limit, seeded from home_yaw_; 改动 I)
 //                or (target_x, target_y, -takeoff_alt, target_yaw) in single-waypoint mode
 //                xyz+yaw 到容差后转 HOLD
 //   FINAL_CORRECTION
@@ -51,6 +52,12 @@ inline uint64_t now_us() {
           std::chrono::steady_clock::now().time_since_epoch())
           .count());
 }
+// 归一化到 (-pi, pi]
+inline double wrap_pi(double a) {
+  while (a > M_PI)  a -= 2.0 * M_PI;
+  while (a <= -M_PI) a += 2.0 * M_PI;
+  return a;
+}
 }  // namespace
 
 class OffboardWaypointNode : public rclcpp::Node {
@@ -68,6 +75,10 @@ public:
     declare_parameter<double>("reach_yaw_tolerance_deg", 5.0);
     declare_parameter<double>("max_state_seconds", 30.0);      // 单状态超时
     declare_parameter<double>("setpoint_rate_hz", 50.0);
+    // yaw 跟随(改动 I):机头从锁死 home_yaw_ 改为速度死区+限速跟随飞行方向,消除倒飞。
+    // yaw_follow_speed 设极大值即退化为锁死 home_yaw_(省赛行为)。
+    declare_parameter<double>("yaw_follow_speed", 0.3);        // m/s,水平速度低于此阈值时保持机头
+    declare_parameter<double>("yaw_rate_max_deg", 60.0);       // deg/s,机头跟随的最大转向速率
     declare_parameter<bool>("enable_arm", false);              // ★安全默认 false
     declare_parameter<bool>("enable_external_traj", false);    // ★ FLY 阶段是否吃外部 (ego-planner) 轨迹
     declare_parameter<std::string>("external_traj_topic", "/ego/trajectory_setpoint");
@@ -116,6 +127,9 @@ public:
     land_disarm_delay_sec_ = get_parameter("land_disarm_delay_sec").as_double();
     disarm_retry_sec_ = get_parameter("disarm_retry_seconds").as_double();
     const double rate_hz = get_parameter("setpoint_rate_hz").as_double();
+    rate_hz_          = rate_hz;
+    yaw_follow_speed_ = get_parameter("yaw_follow_speed").as_double();
+    yaw_rate_max_     = get_parameter("yaw_rate_max_deg").as_double() * M_PI / 180.0;
 
     // ---- QoS:PX4 DDS 订阅用 best-effort + KeepLast(1) ----
     rclcpp::QoS px4_qos(rclcpp::KeepLast(1));
@@ -516,18 +530,32 @@ private:
             hold_z_ = -takeoff_alt_;
             hold_yaw_ = target_yaw_;
           }
+          cmd_yaw_ = home_yaw_;   // yaw 跟随从真实起飞朝向播种,起飞段落在死区内不 snap
           set_state(State::FLY, "altitude reached");
         }
         break;
       }
       case State::FLY: {
         if (enable_ext_traj_ && ext_sp_have_ && ext_sp_fresh()) {
-          // 转发 EGO 轨迹的位置/速度/加速度,但 yaw 强制锁回 home_yaw_。
-          // traj_server 的 yaw 来自路径切向,起步或重规划时可能跳到约 90 deg;
-          // 这里不让外部 yaw 进入 PX4,先保证真机按位置轨迹走而不突然自转。
+          // 转发 EGO 轨迹的位置/速度/加速度。yaw 不再锁死 home_yaw_,而是从 EGO 速度方向
+          // (NED,atan2(vy,vx) 无需坐标翻转)以"速度死区 + 转向限速"平滑跟随飞行方向:
+          //   - 起飞/悬停(speed<yaw_follow_speed_)保持 cmd_yaw_,避免 traj_server 切向 yaw
+          //     从初值 0 跳到约 90 deg 引起的起飞猛甩;
+          //   - 巡航时机头以 <=yaw_rate_max_ 平滑转向,消除区域②→③右转后的倒飞。
           auto sp = ext_sp_;
           sp.timestamp = now_us();
-          sp.yaw       = static_cast<float>(home_yaw_);
+          const double vx = static_cast<double>(sp.velocity[0]);
+          const double vy = static_cast<double>(sp.velocity[1]);
+          const double speed = std::hypot(vx, vy);
+          double yaw_des = cmd_yaw_;
+          if (std::isfinite(speed) && speed > yaw_follow_speed_)
+            yaw_des = std::atan2(vy, vx);
+          const double max_step = yaw_rate_max_ / rate_hz_;   // dt = 1/rate_hz_
+          double dyaw = wrap_pi(yaw_des - cmd_yaw_);
+          if (dyaw >  max_step) dyaw =  max_step;
+          if (dyaw < -max_step) dyaw = -max_step;
+          cmd_yaw_ = wrap_pi(cmd_yaw_ + dyaw);
+          sp.yaw       = static_cast<float>(cmd_yaw_);
           sp.yawspeed  = NAN;
           pub_sp_->publish(sp);
           if (ego_traj_at_goal()) {
@@ -643,12 +671,16 @@ private:
   bool auto_disarm_after_landing_ = true;
   double land_disarm_delay_sec_ = 1.0;
   double disarm_retry_sec_ = 1.0;
+  double rate_hz_ = 50.0;            // 定时器频率,yaw 限速用其求 dt
+  double yaw_follow_speed_ = 0.3;    // yaw 跟随速度死区
+  double yaw_rate_max_ = 60.0 * M_PI / 180.0;  // yaw 跟随最大转向速率 (rad/s)
 
   // 状态
   State state_ = State::INIT;
   std::chrono::steady_clock::time_point state_start_;
   double home_x_ = 0, home_y_ = 0, home_yaw_ = 0;
   double hold_x_ = 0, hold_y_ = 0, hold_z_ = -1.0, hold_yaw_ = 0;
+  double cmd_yaw_ = 0;   // yaw 跟随的当前命令值(NED),进入 FLY 时以 home_yaw_ 播种
   bool goal_have_ = false;
   double goal_map_x_ = 0, goal_map_y_ = 0, goal_map_z_ = 0;
   std::chrono::steady_clock::time_point ego_goal_close_since_;

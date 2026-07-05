@@ -5,9 +5,12 @@
 # 从 bag 提取并手动 publish 到 /move_base_simple/goal.
 #
 # 必须 use_sim_time=true, 因为 bag play 用 --clock 把 /clock 推到 sim time。
-# 参数与 ego_real_flight.launch.py 中 ego_advanced 段保持一致, 任何修改请同步两边。
+# 改动 H: planner 参数来自共享 ego_planner_params.py, 与 real_flight/sim 同源, 不再人工同步。
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ament_index_python.packages import get_package_share_directory
+from ego_planner_params import ego_advanced_launch_arguments
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -43,32 +46,10 @@ def generate_launch_description():
                 'launch', 'advanced_param.launch.py'
             ])
         ]),
-        launch_arguments={
-            'drone_id':          '0',
-            'odometry_topic':    'Odometry',
-            'cloud_topic':       'cloud_registered',
-            'camera_pose_topic': 'unused_pose',
-            'depth_topic':       'unused_depth',
-            'map_size_x_': '40.0', 'map_size_y_': '40.0', 'map_size_z_': '4.0',
-            'obstacles_inflation':   '0.28',
-            'obstacles_inflation_z': '0.10',
-            'dist0':                 '0.08',
-            'max_vel': '0.6', 'max_acc': '0.5',
-            'planning_horizon': '4.0',
-            'emergency_time':   '1.0',
-            'local_update_range_x': '8.0',
-            'local_update_range_y': '8.0',
-            'local_update_range_z': '4.0',
-            'virtual_ceil_height':           '1.5',
-            'virtual_ground_height':         '0.45',
-            'virtual_ground_enable_height':  '0.55',
-            'lambda_z':                      '5.0',
-            'use_distinctive_trajs': 'False',
-            'flight_type': '1',
-            'point_num': '1',
-            'point0_x': '0.0', 'point0_y': '0.0', 'point0_z': '1.0',
-            'obj_num_set': '0',
-        }.items()
+        # replay 用固定保守档(不吃 profile), 参数体来自共享模块。
+        launch_arguments=ego_advanced_launch_arguments(
+            max_vel='0.6', planning_horizon='4.0', emergency_time='1.0',
+        ).items()
     )
 
     return LaunchDescription([
