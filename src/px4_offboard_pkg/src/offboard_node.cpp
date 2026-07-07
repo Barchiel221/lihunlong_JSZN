@@ -460,7 +460,11 @@ private:
       } else if (user_took_over()) {
         RCLCPP_WARN(get_logger(), "User took control (nav_state=%u) -> ABORT", status_.nav_state);
         set_state(State::ABORT, "user override");
-      } else if (seconds_in_state() > max_state_sec_) {
+      } else if (seconds_in_state() > max_state_sec_ &&
+                 !(state_ == State::HOLD && !enable_arm_)) {
+        // dry-run(enable_arm_=false) 下 HOLD 是"永久 park"(见 HOLD case 注释),
+        // 不受 max_state_seconds 约束; 否则 30s 后被踢到 LANDING->DONE,
+        // 使 dry-run 只有 30s 窗口能收 goal 进 FLY(bench 测试无法稳定复现)。
         RCLCPP_ERROR(get_logger(), "State %s timed out (>%.1fs) -> LANDING",
                      state_name(state_), max_state_sec_);
         if (enable_arm_) cmd_land();

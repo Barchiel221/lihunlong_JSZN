@@ -236,12 +236,14 @@ namespace ego_planner
         changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
       else
       {
-        while (exec_state_ != EXEC_TRAJ)
-        {
-          rclcpp::spin_some(node_);
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        changeFSMExecState(REPLAN_TRAJ, "TRIG");
+        // ROS2 修复: 原代码在此 while 循环里 rclcpp::spin_some(node_) 忙等到 EXEC_TRAJ。
+        // 但 planNextWaypoint 本身是在订阅/定时器回调内(node_ 已被外层 executor spin)执行,
+        // 对同一 node 再 spin_some 会抛 "Node has already been added to an executor" -> SIGABRT。
+        // 飞行中(非 WAIT_TARGET)每次发下一个 goal 必崩,卡死 mission_executor 多航点切点。
+        // end_pt_/have_new_target_ 已在上方更新,直接切 REPLAN_TRAJ 让 FSM 朝新目标重规划即可;
+        // 仅在已有局部轨迹执行(EXEC_TRAJ)时强制 REPLAN,否则保持现状让 GEN_NEW/REPLAN 自然完成。
+        if (exec_state_ == EXEC_TRAJ)
+          changeFSMExecState(REPLAN_TRAJ, "TRIG");
       }
 
       visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);

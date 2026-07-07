@@ -71,10 +71,14 @@ fi
 ok "mission 文件: $MISSION"
 
 # ---- source 环境 ----
+# ROS 2 的 setup.bash 会引用未定义变量(AMENT_TRACE_SETUP_FILES 等)，
+# 与 set -u(nounset) 冲突会直接退出，故 source 期间临时关闭 nounset。
+set +u
 # shellcheck disable=SC1091
 source /opt/ros/humble/setup.bash
 # shellcheck disable=SC1091
 source "$WS_DIR/install/setup.bash"
+set -u
 ok "ROS 2 环境已 source"
 
 # ---- 全量录 bag ----
@@ -94,7 +98,9 @@ echo "[race_start]  bag        = $BAG_DIR"
 echo "[race_start] ============================================="
 
 # ---- 拉起实飞栈 ----
-exec ros2 launch top_launch_pkg ego_real_flight.launch.py \
+# 不用 exec: exec 会替换本 shell 进程,使上面注册的 EXIT trap 失效,录 bag 子进程
+# 变成孤儿不被回收。保留为普通子进程,launch 退出后 trap 停 bag。
+ros2 launch top_launch_pkg ego_real_flight.launch.py \
   enable_arm:="$ARM" \
   profile:="$PROFILE" \
   mission_file:="$MISSION"
