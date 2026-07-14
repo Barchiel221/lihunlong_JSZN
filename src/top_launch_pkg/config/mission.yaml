@@ -18,39 +18,59 @@
 # 环航点用粗容差直穿(fly_through), 最后一个航点(降落区)用普通判定, 发出后交
 # px4_offboard 走 FINAL_CORRECTION -> 精对 -> LAND -> DISARM。
 
-default_tolerance: {xy: 0.35, z: 0.25}
+default_tolerance: {xy: 0.14, z: 0.10}
 
 waypoints:
   # ---- 区域① 立柱阵 -> 环① ----
-  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环①入口引导点 (法向 -0.8m, 方向已知时)
-  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环①中心
-  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环①出口引导点 (法向 +0.8m)
+  - pos: [2.1, -1.4, 1.3]
+  - pos: [3.8, -0.7, 1.3]
+  
+  - {pos: [4.7, 0.18, 1.3], fly_through: true}   # 环①入口引导点 (法向 -0.8m, 方向已知时)
+  - {pos: [5.1, 0.18, 1.3], fly_through: true}   # 环①中心
+  - {pos: [5.4, 0.18, 1.3], fly_through: true}   # 环①出口引导点 (法向 +0.8m)
 
   # ---- 区域② 树林(背风侧) -> 环② ----
-  - pos: [0.0, 0.0, 1.0]
-    fly_through: true
-    segment_params: {max_vel: 0.5}              # 进②降速 (风扰段, 计划书 §4.4)
-  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环②中心
-
+  # 低空穿灌木: 本段虚拟地可自行设定 (★两行)。注意可飞下界 ≈0.35m 由真实地面点云决定
+  # (inflation_z 0.17 + dist0 0.08), 虚拟地只能设得比它更保守, 压不破这个下界。
+  # 走低空时把本段 pos 的 z 一并改低 (建议 0.40~0.45)。
+  - pos: [5.7, 0.18, 0.35]                      # 区域二引导点1
+    fly_through: false
+    segment_params:
+      max_vel: 0.5                              # 进②降速 (风扰段, 计划书 §4.4)
+      virtual_ground_height: 0.01               # ★自行设定: 区域②虚拟地 (降地板总是安全的)
+      virtual_ground_enable_height: 0.02       # ★自行设定: 须 > virtual_ground_height
+  - {pos: [6.7, -0.3, 0.35], fly_through: false } #树林引导点1 
+  - {pos: [7.8, -1.5, 0.35], fly_through: false}   # 树林引导点2
+  - {pos: [8.5, -2.2, 1.2], fly_through: false}  # 环2入口引导点
+  - {pos: [8.5, -2.5, 1.2], fly_through: true}   # 环②中心
+  - {pos: [8.5, -2.8, 1.2], fly_through: true}   # 环②中心
+  # 环②出口引导点
   # ---- 区域③ 移动障碍(垂直穿越) -> 环③ ----
-  - pos: [0.0, 0.0, 1.0]
-    fly_through: true
-    segment_params: {max_vel: 0.6}              # 出②恢复速度
-  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环③中心
-
-  # ---- 区域④ 0.7m 拱门 -> 环④ ----
-  - pos: [0.0, 0.0, 1.0]                         # 拱门入口引导点 (开口法向 -0.8m)
+  # ★恢复虚拟地的前提是飞机已回到 enable(0.55) 之上; 若环②中心 z 也改成了低空,
+  #   须在本点之前加一个普通判定的爬升过渡点 (不能 fly_through, 它不查 z)。
+  - pos: [8.5, -3.5, 1.3]
     fly_through: true
     segment_params:
-      max_vel: 0.4                               # 洞口低速直穿 (计划书 §4.4)
+      max_vel: 1.0                             # 出②恢复速度
+      virtual_ground_height: 0.45               # 恢复全局虚拟地
+      virtual_ground_enable_height: 0.55
+  - {pos: [3.5, -3.5, 1.3], fly_through: false}   #环3入口引导点
+  - {pos: [3.0, -3.5, 1.3], fly_through: true}   # 环③中心
+  - {pos: [2.8, -3.5, 1.3], fly_through: true}
+  # ---- 区域④ 0.7m 拱门 -> 环④ ----
+  - pos: [2.0, -4.1, 0.7]                         # 拱门入口引导点 (开口法向 -0.8m)
+    fly_through: false
+    segment_params:
+      max_vel: 0.6                               # 洞口低速直穿 (计划书 §4.4)
       # 环④低位时启用 (赛前按公布高度决定):
-      # virtual_ground_height: 0.25
-      # virtual_ground_enable_height: 0.35
-  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 拱门出口 / 环④入口引导点
-  - {pos: [0.0, 0.0, 1.0], fly_through: true}   # 环④中心
-
+      virtual_ground_height: 0.20
+      virtual_ground_enable_height: 0.25
+  - {pos: [1.0, -4.1, 0.7], fly_through: true}   # 拱门出口 / 环④入口引导点
+  - {pos: [0.6, -3.6, 1.4], fly_through: false}  #环4入口引导点
+  - {pos: [0.15, -3.5, 1.4], fly_through: true}   # 环④圆心
+  - {pos: [0.0, -3.5, 1.4], fly_through: true}   # 环④出口
   # ---- 降落区 (最后一点: 交 px4_offboard 精降, 不加 fly_through) ----
-  - pos: [0.0, 0.0, 1.0]
+  - pos: [-1.2, -3.4, 1.0]                        # 降落区引导点
     segment_params:                              # 恢复全局约束再精降
       max_vel: 0.6
       virtual_ground_height: 0.45

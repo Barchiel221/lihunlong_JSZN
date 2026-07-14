@@ -30,6 +30,7 @@ def generate_launch_description():
     multi_z_tol = LaunchConfiguration('multi_z_tol')
     multi_vel_tol = LaunchConfiguration('multi_vel_tol')
     multi_settle_sec = LaunchConfiguration('multi_settle_sec')
+    max_state_seconds = LaunchConfiguration('max_state_seconds')
 
     flight_stack = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -46,6 +47,7 @@ def generate_launch_description():
             'final_correction': final_correction,
             'precision_xy_tolerance': precision_xy_tolerance,
             'precision_z_tolerance': precision_z_tolerance,
+            'max_state_seconds': max_state_seconds,
         }.items(),
     )
 
@@ -199,6 +201,11 @@ def generate_launch_description():
             'multi_settle_sec',
             default_value='1.0',
             description='进入容差后稳定多久才切下一航点 (s)',
+        ),
+        DeclareLaunchArgument(
+            'max_state_seconds',
+            default_value='30.0',
+            description='Forwarded to px4_offboard. Increase for separated takeoff/waypoint workflows.',
         ),
         flight_stack,
         recorder,

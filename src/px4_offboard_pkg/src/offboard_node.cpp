@@ -235,7 +235,7 @@ private:
     RCLCPP_INFO(get_logger(),
                 "Captured EGO goal map=(%.2f, %.2f, %.2f), final NED=(%.2f, %.2f, %.2f)",
                 goal_map_x_, goal_map_y_, goal_map_z_, hold_x_, hold_y_, hold_z_);
-    if (state_ == State::FINAL_CORRECTION || state_ == State::HOLD) {
+    if (state_ == State::FLY || state_ == State::FINAL_CORRECTION || state_ == State::HOLD) {
       set_state(State::FLY, "new ego goal");
     }
   }
@@ -570,6 +570,12 @@ private:
             set_state(State::FINAL_CORRECTION, "ego goal reached, using MID360 odom");
           }
         } else {
+          if (enable_ext_traj_ && !goal_have_) {
+            publish_setpoint(home_x_, home_y_, -takeoff_alt_, home_yaw_);
+            RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 3000,
+                                 "Waiting for EGO goal; holding takeoff point");
+            break;
+          }
           if (enable_ext_traj_ && ext_sp_have_ && !ext_sp_fresh()) {
             RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
                                  "External traj timeout, falling back to target waypoint");

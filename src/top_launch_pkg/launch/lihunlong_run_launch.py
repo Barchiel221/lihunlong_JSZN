@@ -39,38 +39,10 @@ def generate_launch_description():
         }.items()
     )
 
-    # 3. UART <-> STM32 communication node
-   # uart_node = Node(
-   #    package='uart_to_stm32',
-   #     executable='uart_to_stm32_node',
-   #    name='uart_to_stm32_node',
-   #     output='screen',
-   #)
+    # 曾有 uart_to_stm32 / pid_control_pkg / activity_control_pkg 三个节点在此，
+    # 2026-07-14 连同源码一并移除（PX4 接管后不再需要；uart 与 XRCE-DDS Agent 抢 /dev/ttyS6）。
 
-    # 4. PID controller
-    pid_node = Node(
-        package='pid_control_pkg',
-        executable='pid_control_node',
-        name='pid_control_node',
-        output='screen',
-        parameters=[{
-            'source_frame': 'map',
-            'target_frame': 'laser_link',
-        }]
-    )
-
-    # 5. Route / activity control
-    activity_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            PathJoinSubstitution([
-                FindPackageShare('activity_control_pkg'),
-                'launch',
-                'route_target_publisher_launch.py'
-            ])
-        ])
-    )
-
-    # 6. FAST-LIO -> PX4 EKF2 bridge (uXRCE-DDS, vehicle_visual_odometry)
+    # FAST-LIO -> PX4 EKF2 bridge (uXRCE-DDS, vehicle_visual_odometry)
     lio_px4_bridge_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
@@ -85,8 +57,5 @@ def generate_launch_description():
         rviz_arg,
         livox_launch,
         fast_lio_launch,
-        # uart_node,           # 暂时关掉:与 Micro-XRCE-DDS-Agent 在 /dev/ttyS6 上冲突
-        # pid_node,            # 暂时关掉:对接 PX4 后位置外环交给 PX4 MPC,不再叠这层 PID
-        #activity_launch,
         lio_px4_bridge_launch,
     ])

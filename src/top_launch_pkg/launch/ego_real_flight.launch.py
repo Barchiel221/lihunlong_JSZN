@@ -51,6 +51,9 @@ def generate_launch_description():
     mission_file_arg = DeclareLaunchArgument(
         'mission_file', default_value='',
         description='mission.yaml 路径。空=RViz 手动发 goal;非空=mission_executor 自动任务调度')
+    max_state_seconds_arg = DeclareLaunchArgument(
+        'max_state_seconds', default_value='30.0',
+        description='px4_offboard 单状态超时秒数。分离起飞/航点时可调大,让起飞后悬停等待任务')
     # E3: 参数档。conservative=standard=现值(保守), fast 提速(仅第一轮≥90 分时用, 现场执行预案 §5)。
     profile_arg = DeclareLaunchArgument(
         'profile', default_value='standard',
@@ -148,6 +151,7 @@ def generate_launch_description():
                 'enable_external_traj': True,
                 'external_traj_topic': '/ego/trajectory_setpoint',
                 'external_traj_timeout_sec': 0.5,
+                'max_state_seconds': LaunchConfiguration('max_state_seconds'),
                 # 改动 I: FLY 段机头跟随飞行方向(速度死区+限速), 消除区域②→③右转后倒飞。
                 # yaw_follow_speed 设极大值即退化为锁死 home_yaw_(省赛行为)。
                 'yaw_follow_speed': 0.3,
@@ -199,7 +203,7 @@ def generate_launch_description():
     return LaunchDescription([
         rviz_arg, enable_arm_arg, debug_rviz_arg,
         final_correction_arg, precision_xy_arg, precision_z_arg,
-        mission_file_arg, profile_arg,
+        mission_file_arg, profile_arg, max_state_seconds_arg,
         base_stack,
         tf_world_to_init, tf_map_to_init,
         relay_odom, relay_cloud,

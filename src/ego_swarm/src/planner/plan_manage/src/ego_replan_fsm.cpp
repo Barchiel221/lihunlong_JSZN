@@ -270,7 +270,10 @@ namespace ego_planner
 
     init_pt_ = odom_pos_;
 
-    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, 0.8);
+    // 采用 goal 的真实高度(原 upstream demo 写死 0.8m, 丢弃 goal z, 导致穿环 goal 的
+    // z=1.20 无效, /position_cmd 全程压在 ~0.85m -> 从环下沿掠过。见 bag
+    // ego_real_flight_20260708_075949 环①穿越余量复盘。
+    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
 
     planNextWaypoint(end_wp);
   }

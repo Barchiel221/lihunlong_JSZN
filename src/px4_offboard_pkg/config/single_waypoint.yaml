@@ -12,8 +12,9 @@
     target_yaw_deg: 0.0     # 0=朝北,90=朝东
 
     # 起飞高度(米,正值;NED z 会用 -takeoff_altitude)
-    # 1.0 m: 配合 ego virtual_ceil_height=1.5 (实际峰值 ≈ 1.1m) 留 ~0.1m 余量。
-    takeoff_altitude: 1.0
+    # 1.2 m: 与环高一致, 让巡航就在环高, 环口零爬升需求 (bag 132204 撞环复盘)。
+    # 配合 ego virtual_ceil_height=1.7 (实际峰值 ≈ 1.47m) 留 ~0.27m 余量。
+    takeoff_altitude: 1.2
 
     # 时序
     warmup_seconds: 2.0     # 切 Offboard 前先发多久 setpoint

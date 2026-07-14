@@ -7,11 +7,12 @@
 # 用法:
 #   scripts/race_start.sh                      # dry-run(enable_arm:=false), 用默认 mission.yaml
 #   scripts/race_start.sh --arm                # 真飞(enable_arm:=true)
+#   scripts/race_start.sh --arm --takeoff-only # 真飞起飞后悬停等待, 不自动发 mission
 #   scripts/race_start.sh --arm --profile fast # 提速档真飞
 #   MISSION=/path/to/mission.yaml scripts/race_start.sh --arm
 #   scripts/race_start.sh --skip-checks        # 跳过硬件预检(仅调试用)
 #
-# 环境变量: MISSION / PROFILE / NET_IF / NET_IP / SERIAL_DEV 可覆盖默认。
+# 环境变量: MISSION / PROFILE / NET_IF / NET_IP / SERIAL_DEV / MAX_STATE_SECONDS 可覆盖默认。
 set -euo pipefail
 
 # ---- 定位工作区根(脚本在 <ws>/scripts/ 下) ----
@@ -26,12 +27,16 @@ NET_IF="${NET_IF:-enP3p49s0}"
 NET_IP="${NET_IP:-192.168.1.5}"
 SERIAL_DEV="${SERIAL_DEV:-/dev/ttyS6}"
 SKIP_CHECKS=false
+TAKEOFF_ONLY=false
+MAX_STATE_SECONDS="${MAX_STATE_SECONDS:-30.0}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arm)          ARM=true; shift;;
     --profile)      PROFILE="$2"; shift 2;;
     --mission)      MISSION="$2"; shift 2;;
+    --takeoff-only) TAKEOFF_ONLY=true; shift;;
+    --max-state-seconds) MAX_STATE_SECONDS="$2"; shift 2;;
     --skip-checks)  SKIP_CHECKS=true; shift;;
     -h|--help)      grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     *) echo "unknown arg: $1" >&2; exit 2;;
@@ -65,10 +70,14 @@ if [[ "$SKIP_CHECKS" != true ]]; then
 fi
 
 # ---- mission 文件检查 ----
-if [[ ! -f "$MISSION" ]]; then
+if [[ "$TAKEOFF_ONLY" == true ]]; then
+  MISSION=""
+  ok "takeoff-only 模式: 不自动发布 mission"
+elif [[ ! -f "$MISSION" ]]; then
   fail "mission 文件不存在: $MISSION (先 colcon build --packages-select top_launch_pkg)"
+else
+  ok "mission 文件: $MISSION"
 fi
-ok "mission 文件: $MISSION"
 
 # ---- source 环境 ----
 # ROS 2 的 setup.bash 会引用未定义变量(AMENT_TRACE_SETUP_FILES 等)，
@@ -93,14 +102,21 @@ trap 'echo "[race_start] 停止 bag ($BAG_PID)"; kill -INT "$BAG_PID" 2>/dev/nul
 echo "[race_start] ============================================="
 echo "[race_start]  enable_arm = $ARM   (false=dry-run 不解锁)"
 echo "[race_start]  profile    = $PROFILE"
-echo "[race_start]  mission    = $MISSION"
+echo "[race_start]  mission    = ${MISSION:-<none, takeoff-only>}"
+echo "[race_start]  max_state_seconds = $MAX_STATE_SECONDS"
 echo "[race_start]  bag        = $BAG_DIR"
 echo "[race_start] ============================================="
 
 # ---- 拉起实飞栈 ----
 # 不用 exec: exec 会替换本 shell 进程,使上面注册的 EXIT trap 失效,录 bag 子进程
 # 变成孤儿不被回收。保留为普通子进程,launch 退出后 trap 停 bag。
-ros2 launch top_launch_pkg ego_real_flight.launch.py \
-  enable_arm:="$ARM" \
-  profile:="$PROFILE" \
-  mission_file:="$MISSION"
+LAUNCH_ARGS=(
+  "enable_arm:=$ARM"
+  "profile:=$PROFILE"
+  "max_state_seconds:=$MAX_STATE_SECONDS"
+)
+if [[ -n "$MISSION" ]]; then
+  LAUNCH_ARGS+=("mission_file:=$MISSION")
+fi
+
+ros2 launch top_launch_pkg ego_real_flight.launch.py "${LAUNCH_ARGS[@]}"
